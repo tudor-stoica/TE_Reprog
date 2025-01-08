@@ -1,0 +1,11 @@
+Namespace(s=1, t=2, classes=10, num_dataset=1400, time_len=20, max_epoch=50, batch_size=32, worker=0, lr=0.01, net='vgg16', seed=2025, bottleneck=256, epsilon=1e-05, layer='wn', classifier='bn', smooth=0.1, output='out', trte='val', device=device(type='cpu'), s_dset_path='/Users/tudor/School/Fifth Year/Research/TE_Reprog/TE_process_data/TE_new/mode2_new/', test_dset_path='/Users/tudor/School/Fifth Year/Research/TE_Reprog/TE_process_data/TE_new/mode3_new/', output_dir_src='/Users/tudor/School/Fifth Year/Research/TE_Reprog/out/0015_0801_mode2_mode3_c10_t20', name_src='0015_0801_mode2_mode3_c10_t20', out_file=<_io.TextIOWrapper name='/Users/tudor/School/Fifth Year/Research/TE_Reprog/out/0015_0801_mode2_mode3_c10_t20/log.txt' mode='w' encoding='UTF-8'>)
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 1750/17500; Accuracy = 87.68%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 3500/17500; Accuracy = 87.76%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 5250/17500; Accuracy = 90.88%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 7000/17500; Accuracy = 91.36%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 8750/17500; Accuracy = 91.92%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 10500/17500; Accuracy = 90.08%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 12250/17500; Accuracy = 90.48%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 14000/17500; Accuracy = 91.04%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 15750/17500; Accuracy = 92.00%
+Task: 0015_0801_mode2_mode3_c10_t20, Iter: 17500/17500; Accuracy = 90.32%

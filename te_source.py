@@ -165,7 +165,11 @@ def train_source(args):
     # Set up the network components
     print("Initializing networks...")
     netF = network.MyAlexNet(resnet_name=args.net).to(args.device)
-    netF.in_features = 5 * 5 * 24  # Adjust input features for your data
+
+    dummy_input = torch.zeros(1, 1, args.time_len, 51).to(args.device)  # Shape: (batch_size=1, channels=1, time_len, features)
+    dummy_output = netF(dummy_input)
+    netF.in_features = dummy_output.numel()  # Total flattened features
+
     netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).to(args.device)
     netC = network.feat_classifier(type=args.layer, class_num=args.classes, bottleneck_dim=args.bottleneck).to(args.device)
 
@@ -323,7 +327,7 @@ if __name__ == "__main__":
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%H%M_%d%m")  # Format: HHMM_DDMM
     output_folder = os.path.join(current_dir, args.output)
-    folder_name = f"{timestamp}_{names[args.s]}_{names[args.t]}_{args.classes}"  # Format: HHMM_DDMM_src_tr_classes
+    folder_name = f"{timestamp}_{names[args.s]}_{names[args.t]}_c{args.classes}_t{args.time_len}"  # Format: HHMM_DDMM_src_tr_classes
     args.output_dir_src = os.path.join(output_folder, folder_name)
     args.name_src = folder_name  # Use this name for logging and file organization
 
