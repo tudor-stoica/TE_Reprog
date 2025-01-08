@@ -1,0 +1,36 @@
+==========================================
+gpu_id:0
+s:0
+t:1
+max_epoch:50
+batch_size:32
+worker:0
+dset:TE
+lr:0.01
+net:vgg16
+seed:2020
+bottleneck:256
+epsilon:1e-05
+layer:wn
+classifier:bn
+smooth:0.1
+output:san
+da:uda
+trte:val
+class_num:10
+s_dset_path:D:/Python/DA_based_FD/matlab_pro/mode1_new/
+test_dset_path:D:/Python/DA_based_FD/matlab_pro/mode3_new/
+output_dir_src:san\uda\TE\M
+name_src:M
+out_file:<_io.TextIOWrapper name='san\\uda\\TE\\M\\log.txt' mode='w' encoding='cp936'>
+
+Task: M, Iter:830/8300; Accuracy = 74.67%
+Task: M, Iter:1660/8300; Accuracy = 79.50%
+Task: M, Iter:2490/8300; Accuracy = 80.00%
+Task: M, Iter:3320/8300; Accuracy = 81.67%
+Task: M, Iter:4150/8300; Accuracy = 80.33%
+Task: M, Iter:4980/8300; Accuracy = 81.00%
+Task: M, Iter:5810/8300; Accuracy = 81.67%
+Task: M, Iter:6640/8300; Accuracy = 82.17%
+Task: M, Iter:7470/8300; Accuracy = 80.50%
+Task: M, Iter:8300/8300; Accuracy = 81.83%
