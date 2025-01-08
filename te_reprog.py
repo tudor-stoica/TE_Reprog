@@ -269,6 +269,24 @@ def train_source(args):
     print("Training complete.")
     return netF, netB, netC, dset_loaders
 
+# Function to test the raw source model on the target dataset
+def test_source(args, dset_loaders, netF, netB, netC):
+    # Set networks to evaluation mode
+    netF.eval()
+    netB.eval()
+    netC.eval()
+
+    print("Testing source model on target dataset...")
+    
+    # Evaluate accuracy on target test dataset
+    accuracy, _ = cal_acc(dset_loaders["test"], netF, netB, netC, device=args.device, flag=False)
+    
+    # Log the result
+    log_str = f"Raw Source Model Accuracy on Target Dataset: {accuracy:.2f}%\n"
+    args.out_file.write(log_str)
+    args.out_file.flush()
+    print(log_str)
+
 # Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -276,7 +294,8 @@ if __name__ == "__main__":
     parser.add_argument("--t", type=int, default=3, help="target mode [1, 6]")
     parser.add_argument("--classes", type=int, default=10, help="Num classes [2, 21]")
     parser.add_argument("--num_dataset", type=int, default=600, help="Num classes [2, 21]")
-    parser.add_argument("--time_len", type=int, default=10, help="Num classes [2, 21]")
+    parser.add_argument("--time_len", type=int, default=20, help="Num classes [2, 21]")
+    parser.add_argument("--targ_len", type=int, default=10, help="Num classes [2, 21]")
     parser.add_argument("--max_epoch", type=int, default=50, help="max iterations")
     parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
     parser.add_argument("--worker", type=int, default=0, help="number of workers")
@@ -341,7 +360,10 @@ if __name__ == "__main__":
     args.out_file.flush()
 
     # Train the Source Model
-    _, _, _, dset_loaders = train_source(args)
+    netF, netB, netC, dset_loaders = train_source(args)
 
     # Set Up Test Log File
     args.out_file = open(os.path.join(args.output_dir_src, "log_test.txt"), "w")
+
+    # Test Raw Source Model on Target
+    test_source(args, dset_loaders, netF, netB, netC)
