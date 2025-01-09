@@ -9,6 +9,7 @@ import torch.optim as optim
 from sklearn.metrics import confusion_matrix
 from classlibrary import classLibrary, DealDataset
 from torch.utils.data import DataLoader
+from reprog import ReprogrammableLayer, map_target_to_source_classes
 
 
 cl = classLibrary()
@@ -94,7 +95,7 @@ def cal_acc(loader, netF, netB, netC, device="cpu", flag=False):
         # Return overall accuracy and mean entropy
         return accuracy * 100, mean_ent
 
-# Prepares data loaders for training and testing.
+# Prepares data loaders for training and testing source model.
 def data_load(args, test):
     # Prepare data dictionaries
     dsets = {}
@@ -287,16 +288,86 @@ def test_source(args, dset_loaders, netF, netB, netC):
     args.out_file.flush()
     print(log_str)
 
+# Reprogram the source model using target data.
+def reprogram_source(netF, netB, netC, dset_loaders, args):
+    print("Initializing Reprogramming...")
+    
+    # Set time_len back
+    args.time_len = args.tmp
+
+    # Check the target data loader dimensions
+    for batch_idx, (inputs_target, labels_target) in enumerate(dset_loaders["test"]):
+        print(f"Batch {batch_idx}: inputs_target shape = {inputs_target.shape}, labels_target shape = {labels_target.shape}")
+        
+        # Ensure the input dimensions match the expected target time length and feature size
+        assert inputs_target.shape[2] == args.targ_len, f"Error: Expected target time length {args.targ_len}, but got {inputs_target.shape[1]}"
+        break  # Check the first batch and exit the loop
+
+    # Freeze source model parameters
+    for param in netF.parameters():
+        param.requires_grad = False
+    for param in netB.parameters():
+        param.requires_grad = False
+    for param in netC.parameters():
+        param.requires_grad = False
+
+    # Initialize the reprogrammable layer
+    input_shape = (args.batch_size, args.targ_len, 50)  # Assumes 51 features per time step
+    reprog_layer = ReprogrammableLayer(input_shape, args.time_len, args.targ_len, device=args.device)
+
+    # Map target classes to source classes
+    target_to_source_map = map_target_to_source_classes(args.classes, args.classes)
+
+    # Optimizer for the reprogrammable layer
+    optimizer = torch.optim.Adam(reprog_layer.parameters(), lr=args.lr)
+
+    # Training loop for the reprogrammable layer
+    max_iter = args.max_epoch * len(dset_loaders["test"])
+    interval_iter = max_iter // 10
+    iter_num = 0
+
+    reprog_layer.train()
+    while iter_num < max_iter:
+        for inputs_target, labels_target in dset_loaders["test"]:
+            iter_num += 1
+
+            # Move data to device
+            inputs_target, labels_target = inputs_target.to(args.device), labels_target.to(args.device)
+
+            # Apply reprogrammable layer
+            inputs_reprog = reprog_layer(inputs_target)
+
+            # Forward pass through the source model
+            outputs_reprog = netC(netB(netF(inputs_reprog)))
+
+            # Map target labels to source labels
+            mapped_labels = target_to_source_map[labels_target.long()]
+
+            # Compute loss
+            loss = torch.nn.CrossEntropyLoss()(outputs_reprog, mapped_labels)
+
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            if iter_num % interval_iter == 0 or iter_num == max_iter:
+                print(f"Reprogramming Iteration {iter_num}/{max_iter}, Loss: {loss.item():.4f}")
+
+    # Save the reprogramming parameters
+    torch.save(reprog_layer.state_dict(), os.path.join(args.output_dir_src, "reprog_layer.pt"))
+    print("Reprogramming complete.")
+
 # Main
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--s", type=int, default=1, help="source mode [1, 6]")
     parser.add_argument("--t", type=int, default=3, help="target mode [1, 6]")
     parser.add_argument("--classes", type=int, default=10, help="Num classes [2, 21]")
-    parser.add_argument("--num_dataset", type=int, default=600, help="Num classes [2, 21]")
-    parser.add_argument("--time_len", type=int, default=20, help="Num classes [2, 21]")
-    parser.add_argument("--targ_len", type=int, default=10, help="Num classes [2, 21]")
-    parser.add_argument("--max_epoch", type=int, default=50, help="max iterations")
+    parser.add_argument("--num_dataset", type=int, default=800, help="Num classes [2, 21]")
+    parser.add_argument("--time_len", type=int, default=60, help="Num classes [2, 21]")
+    parser.add_argument("--targ_len", type=int, default=20, help="Num classes [2, 21]")
+    parser.add_argument("--max_epoch", type=int, default=25, help="max iterations")
     parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
     parser.add_argument("--worker", type=int, default=0, help="number of workers")
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")
@@ -367,3 +438,11 @@ if __name__ == "__main__":
 
     # Test Raw Source Model on Target
     test_source(args, dset_loaders, netF, netB, netC)
+
+    # Switch time window length
+    args.tmp = args.time_len
+    args.time_len = args.targ_len
+    dset_loaders = data_load(args, 0)
+
+    # Perform Reprogramming
+    reprogram_source(netF, netB, netC, dset_loaders, args)
