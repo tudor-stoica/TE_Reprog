@@ -10,6 +10,7 @@ from sklearn.metrics import confusion_matrix
 from classlibrary import classLibrary, DealDataset
 from torch.utils.data import DataLoader
 from reprog import ReprogrammableLayer, ReproWrapper, map_target_to_source_classes
+from utils import  plot_metrics
 
 
 cl = classLibrary()
@@ -187,21 +188,30 @@ def data_load(args, test):
 
 # Trains source model
 def train_source(args):
-    # Load dataset loaders
-    dset_loaders = data_load(args, 0)
+    # 1) Load dataset loaders
+    dset_loaders = data_load(args, test=0)
 
-    # Set up the network components
+    # 2) Initialize networks
     print("Initializing networks...")
     netF = network.MyAlexNet(resnet_name=args.net).to(args.device)
 
-    dummy_input = torch.zeros(1, 1, args.time_len, 51).to(args.device)  # Shape: (batch_size=1, channels=1, time_len, features)
+    dummy_input = torch.zeros(1, 1, args.time_len, 51).to(args.device)
     dummy_output = netF(dummy_input)
-    netF.in_features = dummy_output.numel()  # Total flattened features
+    netF.in_features = dummy_output.numel()
 
-    netB = network.feat_bootleneck(type=args.classifier, feature_dim=netF.in_features, bottleneck_dim=args.bottleneck).to(args.device)
-    netC = network.feat_classifier(type=args.layer, class_num=args.classes, bottleneck_dim=args.bottleneck).to(args.device)
+    netB = network.feat_bootleneck(
+        type=args.classifier, 
+        feature_dim=netF.in_features, 
+        bottleneck_dim=args.bottleneck
+    ).to(args.device)
 
-    # Prepare optimizer with different learning rates for each network component
+    netC = network.feat_classifier(
+        type=args.layer, 
+        class_num=args.classes, 
+        bottleneck_dim=args.bottleneck
+    ).to(args.device)
+
+    # 3) Set up optimizer
     print("Setting up optimizer...")
     param_group = []
     for k, v in netF.named_parameters():
@@ -210,90 +220,114 @@ def train_source(args):
         param_group += [{'params': v, 'lr': args.lr}]
     for k, v in netC.named_parameters():
         param_group += [{'params': v, 'lr': args.lr}]
+
     optimizer = optim.SGD(param_group, momentum=0.9, weight_decay=1e-4)
     optimizer = op_copy(optimizer)
 
-    # Initialize training variables
+    # 4) Prepare variables to track best accuracy & model
     acc_init = 0
-    max_iter = args.max_epoch * len(dset_loaders["source_tr"])
-    interval_iter = max_iter // 10
-    iter_num = 0
-    ACC = []
+    max_epoch = args.max_epoch
+    total_steps = max_epoch * len(dset_loaders["source_tr"])  # for LR scheduling
 
-    # Set networks to training mode
-    netF.train()
-    netB.train()
-    netC.train()
+    # We'll store epoch-wise accuracy & loss for plotting
+    epoch_list = list(range(1, max_epoch + 1))
+    epoch_acc_list = []
+    epoch_loss_list = []
 
-    # Initialize the iterator for the source training loader
-    iter_source = iter(dset_loaders["source_tr"])
+    best_netF = None
+    best_netB = None
+    best_netC = None
 
-    # Training loop
     print("Starting training...")
-    while iter_num < max_iter:
-        try:
-            inputs_source, labels_source = next(iter_source)
-        except StopIteration:
-            iter_source = iter(dset_loaders["source_tr"])
-            inputs_source, labels_source = next(iter_source)
 
-        if inputs_source.size(0) == 1:
-            continue
+    # 5) Epoch-based loop
+    for epoch in range(max_epoch):
+        netF.train()
+        netB.train()
+        netC.train()
 
-        iter_num += 1
+        running_loss = 0.0
 
-        # Adjust learning rate using a scheduler
-        lr_scheduler(optimizer, iter_num=iter_num, max_iter=max_iter)
+        # for each mini-batch
+        for i, (inputs_source, labels_source) in enumerate(dset_loaders["source_tr"]):
+            # Current global iteration index
+            iter_num = epoch * len(dset_loaders["source_tr"]) + i + 1
 
-        # Move data to the appropriate device
-        inputs_source, labels_source = inputs_source.to(args.device), labels_source.to(args.device)
+            # LR scheduling
+            lr_scheduler(optimizer, iter_num=iter_num, max_iter=total_steps)
 
-        # Forward pass through the network
-        outputs_source = netC(netB(netF(inputs_source.float())))
+            # Skip if batch_size == 1 (common in your code)
+            if inputs_source.size(0) == 1:
+                continue
 
-        # Compute loss
-        classifier_loss = loss.CrossEntropyLabelSmooth(num_classes=args.classes, epsilon=args.smooth)(
-            outputs_source, labels_source.long()
-        )
+            # Move data to device
+            inputs_source = inputs_source.to(args.device)
+            labels_source = labels_source.to(args.device)
 
-        # Backward pass and optimizer step
-        optimizer.zero_grad()
-        classifier_loss.backward()
-        optimizer.step()
+            # Forward pass
+            outputs_source = netC(netB(netF(inputs_source.float())))
 
-        # Periodically evaluate and log performance
-        if iter_num % interval_iter == 0 or iter_num == max_iter:
-            netF.eval()
-            netB.eval()
-            netC.eval()
+            # Compute loss
+            classifier_loss = loss.CrossEntropyLabelSmooth(
+                num_classes=args.classes, epsilon=args.smooth
+            )(outputs_source, labels_source.long())
 
-            # Evaluate on source test data
-            acc_s_te, acc_list = cal_acc(dset_loaders["source_te"], netF, netB, netC, flag=False)
-            log_str = f"Task: {args.name_src}, Iter: {iter_num}/{max_iter}; Accuracy = {acc_s_te:.2f}%"
-            args.out_file.write(log_str + '\n')
-            args.out_file.flush()
-            print(log_str + '\n')
+            # Backward & update
+            optimizer.zero_grad()
+            classifier_loss.backward()
+            optimizer.step()
 
-            # Track best performance and save models
-            ACC.append(acc_s_te)
-            if acc_s_te >= acc_init:
-                acc_init = acc_s_te
-                best_netF = netF.state_dict()
-                best_netB = netB.state_dict()
-                best_netC = netC.state_dict()
+            running_loss += classifier_loss.item()
 
-            # Switch back to training mode
-            netF.train()
-            netB.train()
-            netC.train()
+        # 6) End of epoch => compute average training loss
+        epoch_loss = running_loss / len(dset_loaders["source_tr"])
 
-    # Save the best model checkpoints
+        # Evaluate on validation (source_te)
+        netF.eval()
+        netB.eval()
+        netC.eval()
+
+        acc_s_te, _ = cal_acc(dset_loaders["source_te"], netF, netB, netC, flag=False)
+
+        # Log
+        log_str = (f"Epoch {epoch+1}/{max_epoch}; "
+                   f"Loss = {epoch_loss:.4f}; "
+                   f"Accuracy = {acc_s_te:.2f}%")
+        print(log_str)
+        args.out_file.write(log_str + '\n')
+        args.out_file.flush()
+
+        # Track best accuracy
+        if acc_s_te >= acc_init:
+            acc_init = acc_s_te
+            best_netF = netF.state_dict()
+            best_netB = netB.state_dict()
+            best_netC = netC.state_dict()
+
+        # Store epoch-level metrics for plotting
+        epoch_loss_list.append(epoch_loss)
+        epoch_acc_list.append(acc_s_te)
+
+    # 7) After final epoch -> save best model
     print("Saving best model...")
     torch.save(best_netF, os.path.join(args.output_dir_src, "source_F.pt"))
     torch.save(best_netB, os.path.join(args.output_dir_src, "source_B.pt"))
     torch.save(best_netC, os.path.join(args.output_dir_src, "source_C.pt"))
 
     print("Training complete.")
+
+    # 8) Plot the training curves
+    #    We'll call plot_metrics(...) from utils.py
+    plot_metrics(
+        epochs=epoch_list,
+        acc_list=epoch_acc_list,
+        loss_list=epoch_loss_list,
+        out_dir=args.output_dir_src,
+        plot_title=f"Source Training ({args.name_src})",
+        prefix="source"
+    )
+
+    # Return networks & loaders
     return netF, netB, netC, dset_loaders
 
 # Function to test the raw source model on the target dataset
@@ -326,16 +360,15 @@ def reprogram_source(netF, netB, netC, dset_loaders, args):
     for param in netC.parameters():
         param.requires_grad = False
 
-    # 2) The input shape and reprogram layer
-    #    Suppose your source model expects time_len=60, features=50 (example),
-    #    and your target length = args.targ_len. 
-    #    We pass 'args.tmp' as the original source time_len from training.
-    source_time_len = args.tmp      # e.g. 60
-    target_time_len = args.targ_len # e.g. 10
-    input_shape = (args.batch_size, target_time_len, 50)  
+    # 2) Reprogramming layer
+    source_time_len = args.tmp      # e.g., 60 (the source model time length)
+    target_time_len = args.targ_len # e.g., 10
+    feature_dim = 50                # or 51, depending on your actual model
+    input_shape = (args.batch_size, target_time_len, feature_dim)
+
     reprog_layer = ReprogrammableLayer(
-        input_shape, 
-        source_time_len,   # the number of time steps the source net expects
+        input_shape,
+        source_time_len,
         target_time_len,
         device=args.device
     ).to(args.device)
@@ -343,27 +376,34 @@ def reprogram_source(netF, netB, netC, dset_loaders, args):
     # 3) Build a wrapper that includes reprogramming
     reprog_net = ReproWrapper(reprog_layer, netF, netB, netC).to(args.device)
 
-    # 4) Set up optimizer
+    # 4) Optimizer
     optimizer = torch.optim.Adam(reprog_layer.parameters(), lr=args.lr)
 
-    # 5) Total training iterations
-    max_iter = args.target_max_epoch * len(dset_loaders["test"])
-    interval_iter = max_iter // 10
-    iter_num = 0
+    # 5) Convert from iteration-based to epoch-based
+    #    We'll do: for epoch in range(args.target_max_epoch):
+    #    So first figure out how many batches in your "test" loader:
+    num_batches = len(dset_loaders["test"])
+    max_epoch = args.target_max_epoch
 
-    # 6) Map target classes -> source classes 
-    #    (assuming same # of classes => identity mapping)
+    # 6) Map target classes -> source classes (assuming identity if they match)
     target_to_source_map = map_target_to_source_classes(args.classes, args.classes)
 
-    # 7) Train
-    reprog_net.train()
-    acc_init = 0  # track best accuracy
+    # We'll collect per-epoch metrics to plot later
+    epoch_list = list(range(1, max_epoch + 1))
+    epoch_acc_list = []
+    epoch_loss_list = []
+
+    # Track best accuracy
+    acc_init = 0
+
     print("Starting reprogramming training...")
 
-    while iter_num < max_iter:
-        for inputs_target, labels_target in dset_loaders["test"]:
-            iter_num += 1
+    for epoch in range(max_epoch):
+        reprog_net.train()
+        running_loss = 0.0
 
+        # Train for one epoch (loop over all mini-batches)
+        for i, (inputs_target, labels_target) in enumerate(dset_loaders["test"]):
             # Move to device
             inputs_target = inputs_target.to(args.device)
             labels_target = labels_target.to(args.device)
@@ -381,36 +421,50 @@ def reprogram_source(netF, netB, netC, dset_loaders, args):
             loss.backward()
             optimizer.step()
 
-            # Evaluate & log every interval or at final iteration
-            if iter_num % interval_iter == 0 or iter_num == max_iter:
-                with torch.no_grad():
-                    reprog_net.eval()
-                    # Compute accuracy on target data with reprogramming
-                    accuracy, _ = cal_acc_reprog(dset_loaders["test"], reprog_net, args.device)
-                    
-                    log_str = f"Task: {args.name_src}, Iter: {iter_num}/{max_iter}; Accuracy = {accuracy:.2f}%"
-                    
-                    # Output to console
-                    print(log_str + '\n')
-                    # Output to log file
-                    args.out_file.write(log_str + '\n')
-                    args.out_file.flush()
+            running_loss += loss.item()
 
-                    # Track best accuracy
-                    if accuracy >= acc_init:
-                        acc_init = accuracy
-                        # Optionally save the best reprogramming layer
-                        # torch.save(reprog_layer.state_dict(), os.path.join(args.output_dir_src, "best_reprog_layer.pt"))
+        # Compute average loss over the epoch
+        epoch_loss = running_loss / num_batches
 
-                    reprog_net.train()
+        # Evaluate accuracy on the target domain (with reprogramming)
+        reprog_net.eval()
+        accuracy, _ = cal_acc_reprog(dset_loaders["test"], reprog_net, device=args.device)
 
-            if iter_num >= max_iter:
-                break
+        # Log
+        log_str = (f"[Epoch {epoch+1}/{max_epoch}] "
+                   f"Loss = {epoch_loss:.4f}; "
+                   f"Accuracy = {accuracy:.2f}%")
+        print(log_str)
+        args.out_file.write(log_str + "\n")
+        args.out_file.flush()
 
-    # Save final reprogram parameters
+        # Track best accuracy
+        if accuracy > acc_init:
+            acc_init = accuracy
+            # Optionally save the best reprogramming layer here
+            # torch.save(reprog_layer.state_dict(), os.path.join(args.output_dir_src, "best_reprog_layer.pt"))
+
+        # Store epoch stats
+        epoch_loss_list.append(epoch_loss)
+        epoch_acc_list.append(accuracy)
+
+    # End of all epochs => save final reprog parameters
     print("Saving reprogramming parameters...")
     torch.save(reprog_layer.state_dict(), os.path.join(args.output_dir_src, "reprog_layer.pt"))
     print("Reprogramming complete.")
+
+    # Plot the training curves (accuracy & loss vs. epoch)
+    from utils import plot_metrics
+    plot_metrics(
+        epochs=epoch_list,
+        acc_list=epoch_acc_list,
+        loss_list=epoch_loss_list,
+        out_dir=args.output_dir_src,
+        plot_title="Target Reprogramming",
+        prefix="target"
+    )
+
+    return reprog_net
 
 # Main
 if __name__ == "__main__":
@@ -422,7 +476,7 @@ if __name__ == "__main__":
     parser.add_argument("--time_len", type=int, default=60, help="Num classes [2, 21]")
     parser.add_argument("--targ_len", type=int, default=20, help="Num classes [2, 21]")
     parser.add_argument("--max_epoch", type=int, default=5, help="max iterations")
-    parser.add_argument("--target_max_epoch", type=int, default=50, help="max iterations")
+    parser.add_argument("--target_max_epoch", type=int, default=5, help="max iterations")
     parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
     parser.add_argument("--worker", type=int, default=0, help="number of workers")
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")

@@ -1,3 +1,4 @@
+# utils.py
 import os
 import matplotlib.pyplot as plt
 
@@ -5,13 +6,10 @@ def plot_metrics(epochs, acc_list, loss_list, out_dir, plot_title="Training Metr
     """
     epochs     : list of epoch indices [1..N]
     acc_list   : list of accuracies per epoch
-    loss_list  : list of losses per epoch (can be average training loss or validation loss, up to you)
+    loss_list  : list of losses per epoch (can be average training or val loss)
     out_dir    : directory to save the plot
     plot_title : title for the plot
     prefix     : prefix in the saved plot name (e.g. 'source' or 'target')
-
-    Produces a single figure with two subplots: accuracy vs. epoch and loss vs. epoch,
-    then saves it as '{prefix}_training_plot.png' in out_dir.
     """
     # Create a figure with 2 subplots side by side
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
@@ -35,12 +33,12 @@ def plot_metrics(epochs, acc_list, loss_list, out_dir, plot_title="Training Metr
     # Overall figure title
     fig.suptitle(plot_title, fontsize=14)
 
-    # Adjust layout so titles, labels don’t overlap
+    # Make sure layouts don't overlap
     plt.tight_layout()
 
     # Save the figure
     os.makedirs(out_dir, exist_ok=True)
     plot_path = os.path.join(out_dir, f"{prefix}_training_plot.png")
     plt.savefig(plot_path)
-    plt.close(fig)  # Close the figure to free memory
+    plt.close(fig)
     print(f"Plot saved to: {plot_path}")
