@@ -508,12 +508,7 @@ if __name__ == "__main__":
         torch.cuda.manual_seed_all(SEED)
 
     # Determine the available device (CPU or CUDA-enabled GPU)
-    if torch.cuda.is_available():
-        args.device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        args.device = torch.device("mps")
-    else:
-        args.device = torch.device("cpu")
+    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {args.device}")
 
     # Define Path
@@ -532,7 +527,7 @@ if __name__ == "__main__":
     current_time = datetime.datetime.now()
     timestamp = current_time.strftime("%H%M_%d%m")  # Format: HHMM_DDMM
     output_folder = os.path.join(current_dir, args.output)
-    folder_name = f"{timestamp}_{names[args.s]}_{names[args.t]}_c{args.classes}_t{args.time_len}"  # Format: HHMM_DDMM_src_tr_classes
+    folder_name = f"{timestamp}_{names[args.s]}_{names[args.t]}_c{args.classes}_s{args.time_len}_t{args.targ_len}"  # Format: HHMM_DDMM_src_tr_classes
     args.output_dir_src = os.path.join(output_folder, folder_name)
     args.name_src = folder_name  # Use this name for logging and file organization
 
