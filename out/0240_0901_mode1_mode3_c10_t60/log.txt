@@ -1,0 +1,11 @@
+Namespace(s=0, t=2, classes=10, num_dataset=800, time_len=60, targ_len=20, max_epoch=10, target_max_epoch=50, batch_size=32, worker=0, lr=0.01, net='vgg16', seed=2025, bottleneck=256, epsilon=1e-05, layer='wn', classifier='bn', smooth=0.1, output='out', trte='val', device=device(type='cpu'), s_dset_path='/Users/tudor/School/Fifth Year/Research/TE_Reprog/TE_process_data/TE_new/mode1_new/', test_dset_path='/Users/tudor/School/Fifth Year/Research/TE_Reprog/TE_process_data/TE_new/mode3_new/', output_dir_src='/Users/tudor/School/Fifth Year/Research/TE_Reprog/out/0240_0901_mode1_mode3_c10_t60', name_src='0240_0901_mode1_mode3_c10_t60', out_file=<_io.TextIOWrapper name='/Users/tudor/School/Fifth Year/Research/TE_Reprog/out/0240_0901_mode1_mode3_c10_t60/log.txt' mode='w' encoding='UTF-8'>)
+[Epoch 1/10] Loss = 0.9024; Accuracy = 80.30%
+[Epoch 2/10] Loss = 0.6585; Accuracy = 95.82%
+[Epoch 3/10] Loss = 0.5850; Accuracy = 98.06%
+[Epoch 4/10] Loss = 0.5673; Accuracy = 98.81%
+[Epoch 5/10] Loss = 0.5593; Accuracy = 97.16%
+[Epoch 6/10] Loss = 0.5552; Accuracy = 98.21%
+[Epoch 7/10] Loss = 0.5517; Accuracy = 97.01%
+[Epoch 8/10] Loss = 0.5476; Accuracy = 97.46%
+[Epoch 9/10] Loss = 0.5472; Accuracy = 98.21%
+[Epoch 10/10] Loss = 0.5437; Accuracy = 97.61%

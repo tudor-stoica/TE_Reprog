@@ -238,7 +238,7 @@ def train_source(args):
     best_netB = None
     best_netC = None
 
-    print("Starting training...")
+    print("Starting source training...")
 
     # 5) Epoch-based loop
     for epoch in range(max_epoch):
@@ -290,7 +290,7 @@ def train_source(args):
         acc_s_te, _ = cal_acc(dset_loaders["source_te"], netF, netB, netC, flag=False)
 
         # Log
-        log_str = (f"Epoch {epoch+1}/{max_epoch}; "
+        log_str = (f"[Epoch {epoch+1}/{max_epoch}] "
                    f"Loss = {epoch_loss:.4f}; "
                    f"Accuracy = {acc_s_te:.2f}%")
         print(log_str)
@@ -473,10 +473,10 @@ if __name__ == "__main__":
     parser.add_argument("--t", type=int, default=3, help="target mode [1, 6]")
     parser.add_argument("--classes", type=int, default=10, help="Num classes [2, 21]")
     parser.add_argument("--num_dataset", type=int, default=800, help="Num classes [2, 21]")
-    parser.add_argument("--time_len", type=int, default=60, help="Num classes [2, 21]")
+    parser.add_argument("--time_len", type=int, default=100, help="Num classes [2, 21]")
     parser.add_argument("--targ_len", type=int, default=20, help="Num classes [2, 21]")
     parser.add_argument("--max_epoch", type=int, default=5, help="max iterations")
-    parser.add_argument("--target_max_epoch", type=int, default=5, help="max iterations")
+    parser.add_argument("--target_max_epoch", type=int, default=50, help="max iterations")
     parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
     parser.add_argument("--worker", type=int, default=0, help="number of workers")
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")
@@ -508,7 +508,12 @@ if __name__ == "__main__":
         torch.cuda.manual_seed_all(SEED)
 
     # Determine the available device (CPU or CUDA-enabled GPU)
-    args.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        args.device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        args.device = torch.device("mps")
+    else:
+        args.device = torch.device("cpu")
     print(f"Using device: {args.device}")
 
     # Define Path
