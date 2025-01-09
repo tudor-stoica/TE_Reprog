@@ -59,3 +59,20 @@ def map_target_to_source_classes(num_source_classes, num_target_classes):
     target_to_source_map = torch.tensor(target_to_source_map[:num_target_classes], dtype=torch.long)
 
     return target_to_source_map
+
+
+class ReproWrapper(torch.nn.Module):
+    def __init__(self, reprog_layer, netF, netB, netC):
+        super(ReproWrapper, self).__init__()
+        self.reprog_layer = reprog_layer
+        self.netF = netF
+        self.netB = netB
+        self.netC = netC
+
+    def forward(self, x):
+        # x: shape [batch, 1, targ_time_len, 50]
+        x_reprog = self.reprog_layer(x)   # => shape [batch, 1, source_time_len, 50]
+        feat = self.netF(x_reprog)        # => shape [batch, in_features]
+        featB = self.netB(feat)           # => [batch, bottleneck_dim]
+        out = self.netC(featB)            # => [batch, # of classes]
+        return out

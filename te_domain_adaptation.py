@@ -9,7 +9,7 @@ import torch.optim as optim
 from sklearn.metrics import confusion_matrix
 from classlibrary import classLibrary, DealDataset
 from torch.utils.data import DataLoader
-from reprog import ReprogrammableLayer, map_target_to_source_classes
+from reprog import ReprogrammableLayer, ReproWrapper, map_target_to_source_classes
 
 
 cl = classLibrary()
@@ -94,6 +94,32 @@ def cal_acc(loader, netF, netB, netC, device="cpu", flag=False):
     else:
         # Return overall accuracy and mean entropy
         return accuracy * 100, mean_ent
+    
+def cal_acc_reprog(loader, reprog_net, device="cpu", flag=False):
+    start_test = True
+    reprog_net.eval()
+    with torch.no_grad():
+        for data in loader:
+            inputs, labels = data[0].to(device), data[1].to(device)
+            
+            # Forward pass with reprogramming
+            outputs = reprog_net(inputs)
+            
+            if start_test:
+                all_output = outputs.float().cpu()
+                all_label = labels.float().cpu()
+                start_test = False
+            else:
+                all_output = torch.cat((all_output, outputs.float().cpu()), 0)
+                all_label = torch.cat((all_label, labels.float().cpu()), 0)
+
+    # Same post-processing as original cal_acc
+    all_output = torch.nn.Softmax(dim=1)(all_output)
+    _, predict = torch.max(all_output, 1)
+    accuracy = torch.sum(predict == all_label).item() / float(all_label.size(0)) * 100.0
+
+    # You can also compute confusion matrix if needed
+    return accuracy, None
 
 # Prepares data loaders for training and testing source model.
 def data_load(args, test):
@@ -291,19 +317,8 @@ def test_source(args, dset_loaders, netF, netB, netC):
 # Reprogram the source model using target data.
 def reprogram_source(netF, netB, netC, dset_loaders, args):
     print("Initializing Reprogramming...")
-    
-    # Set time_len back
-    args.time_len = args.tmp
 
-    # Check the target data loader dimensions
-    for batch_idx, (inputs_target, labels_target) in enumerate(dset_loaders["test"]):
-        print(f"Batch {batch_idx}: inputs_target shape = {inputs_target.shape}, labels_target shape = {labels_target.shape}")
-        
-        # Ensure the input dimensions match the expected target time length and feature size
-        assert inputs_target.shape[2] == args.targ_len, f"Error: Expected target time length {args.targ_len}, but got {inputs_target.shape[1]}"
-        break  # Check the first batch and exit the loop
-
-    # Freeze source model parameters
+    # 1) Freeze the source model
     for param in netF.parameters():
         param.requires_grad = False
     for param in netB.parameters():
@@ -311,50 +326,89 @@ def reprogram_source(netF, netB, netC, dset_loaders, args):
     for param in netC.parameters():
         param.requires_grad = False
 
-    # Initialize the reprogrammable layer
-    input_shape = (args.batch_size, args.targ_len, 50)  # Assumes 51 features per time step
-    reprog_layer = ReprogrammableLayer(input_shape, args.time_len, args.targ_len, device=args.device)
+    # 2) The input shape and reprogram layer
+    #    Suppose your source model expects time_len=60, features=50 (example),
+    #    and your target length = args.targ_len. 
+    #    We pass 'args.tmp' as the original source time_len from training.
+    source_time_len = args.tmp      # e.g. 60
+    target_time_len = args.targ_len # e.g. 10
+    input_shape = (args.batch_size, target_time_len, 50)  
+    reprog_layer = ReprogrammableLayer(
+        input_shape, 
+        source_time_len,   # the number of time steps the source net expects
+        target_time_len,
+        device=args.device
+    ).to(args.device)
 
-    # Map target classes to source classes
-    target_to_source_map = map_target_to_source_classes(args.classes, args.classes)
+    # 3) Build a wrapper that includes reprogramming
+    reprog_net = ReproWrapper(reprog_layer, netF, netB, netC).to(args.device)
 
-    # Optimizer for the reprogrammable layer
+    # 4) Set up optimizer
     optimizer = torch.optim.Adam(reprog_layer.parameters(), lr=args.lr)
 
-    # Training loop for the reprogrammable layer
-    max_iter = args.max_epoch * len(dset_loaders["test"])
+    # 5) Total training iterations
+    max_iter = args.target_max_epoch * len(dset_loaders["test"])
     interval_iter = max_iter // 10
     iter_num = 0
 
-    reprog_layer.train()
+    # 6) Map target classes -> source classes 
+    #    (assuming same # of classes => identity mapping)
+    target_to_source_map = map_target_to_source_classes(args.classes, args.classes)
+
+    # 7) Train
+    reprog_net.train()
+    acc_init = 0  # track best accuracy
+    print("Starting reprogramming training...")
+
     while iter_num < max_iter:
         for inputs_target, labels_target in dset_loaders["test"]:
             iter_num += 1
 
-            # Move data to device
-            inputs_target, labels_target = inputs_target.to(args.device), labels_target.to(args.device)
+            # Move to device
+            inputs_target = inputs_target.to(args.device)
+            labels_target = labels_target.to(args.device)
 
-            # Apply reprogrammable layer
-            inputs_reprog = reprog_layer(inputs_target)
+            # Forward
+            outputs_reprog = reprog_net(inputs_target)
 
-            # Forward pass through the source model
-            outputs_reprog = netC(netB(netF(inputs_reprog)))
-
-            # Map target labels to source labels
+            # Map target -> source labels
             mapped_labels = target_to_source_map[labels_target.long()]
 
-            # Compute loss
+            # Loss
             loss = torch.nn.CrossEntropyLoss()(outputs_reprog, mapped_labels)
 
-            # Backward pass and optimization
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
+            # Evaluate & log every interval or at final iteration
             if iter_num % interval_iter == 0 or iter_num == max_iter:
-                print(f"Reprogramming Iteration {iter_num}/{max_iter}, Loss: {loss.item():.4f}")
+                with torch.no_grad():
+                    reprog_net.eval()
+                    # Compute accuracy on target data with reprogramming
+                    accuracy, _ = cal_acc_reprog(dset_loaders["test"], reprog_net, args.device)
+                    
+                    log_str = f"Task: {args.name_src}, Iter: {iter_num}/{max_iter}; Accuracy = {accuracy:.2f}%"
+                    
+                    # Output to console
+                    print(log_str + '\n')
+                    # Output to log file
+                    args.out_file.write(log_str + '\n')
+                    args.out_file.flush()
 
-    # Save the reprogramming parameters
+                    # Track best accuracy
+                    if accuracy >= acc_init:
+                        acc_init = accuracy
+                        # Optionally save the best reprogramming layer
+                        # torch.save(reprog_layer.state_dict(), os.path.join(args.output_dir_src, "best_reprog_layer.pt"))
+
+                    reprog_net.train()
+
+            if iter_num >= max_iter:
+                break
+
+    # Save final reprogram parameters
+    print("Saving reprogramming parameters...")
     torch.save(reprog_layer.state_dict(), os.path.join(args.output_dir_src, "reprog_layer.pt"))
     print("Reprogramming complete.")
 
@@ -367,7 +421,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_dataset", type=int, default=800, help="Num classes [2, 21]")
     parser.add_argument("--time_len", type=int, default=60, help="Num classes [2, 21]")
     parser.add_argument("--targ_len", type=int, default=20, help="Num classes [2, 21]")
-    parser.add_argument("--max_epoch", type=int, default=25, help="max iterations")
+    parser.add_argument("--max_epoch", type=int, default=5, help="max iterations")
+    parser.add_argument("--target_max_epoch", type=int, default=50, help="max iterations")
     parser.add_argument("--batch_size", type=int, default=32, help="batch_size")
     parser.add_argument("--worker", type=int, default=0, help="number of workers")
     parser.add_argument("--lr", type=float, default=1e-2, help="learning rate")
@@ -435,6 +490,8 @@ if __name__ == "__main__":
 
     # Set Up Test Log File
     args.out_file = open(os.path.join(args.output_dir_src, "log_test.txt"), "w")
+    args.out_file.write(str(args) + "\n")  # Record the arguments used
+    args.out_file.flush()
 
     # Test Raw Source Model on Target
     test_source(args, dset_loaders, netF, netB, netC)

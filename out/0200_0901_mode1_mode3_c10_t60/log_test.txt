@@ -1,0 +1,11 @@
+Raw Source Model Accuracy on Target Dataset: 9.48%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 110/1100; Accuracy = 15.72%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 220/1100; Accuracy = 16.55%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 330/1100; Accuracy = 17.02%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 440/1100; Accuracy = 18.03%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 550/1100; Accuracy = 18.00%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 660/1100; Accuracy = 18.37%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 770/1100; Accuracy = 18.96%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 880/1100; Accuracy = 19.22%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 990/1100; Accuracy = 19.32%
+Task: 0200_0901_mode1_mode3_c10_t60, Iter: 1100/1100; Accuracy = 19.08%
